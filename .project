@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>fnet_wolfssl_k64f</name>
+	<name>teste32</name>
 	<comment></comment>
 	<projects>
 	</projects>
@@ -39,6 +39,11 @@
 			<name>mmcau_2.0.0</name>
 			<type>2</type>
 			<location>C:/Users/RodrigoA/Desktop/dz/mmcau_2.0.0</location>
+		</link>
+		<link>
+			<name>wolfssl_3.6.8</name>
+			<type>2</type>
+			<location>C:/Users/RodrigoA/Desktop/dz/wolfssl_3.6.8</location>
 		</link>
 	</linkedResources>
 </projectDescription>
