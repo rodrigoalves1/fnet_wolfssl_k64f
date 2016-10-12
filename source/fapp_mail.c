@@ -19,6 +19,9 @@
 
 #include "fapp_mail.h"
 #include "fnet_smtp.h"
+
+#include <wolfssl/ssl.h>
+#include <wolfssl/certs_test.h>
 /************************************************************************
 *     Definitions.
 *************************************************************************/
@@ -59,6 +62,9 @@ const char *months[] =
 *************************************************************************/
 static void fapp_dns_handler_resolved (const struct fnet_dns_resolved_addr *addr_list, fnet_size_t addr_list_size, fnet_uint32_t cookie);
 static void fapp_bench_print_results (fnet_shell_desc_t desc);
+static int CbIORecv(WOLFSSL *ssl, char *buf, int sz, void *ctx);
+static int CbIOSend(WOLFSSL *ssl, char *buf, int sz, void *ctx);
+static void ShowCiphers(void);
 
 /************************************************************************
 * NAME: fapp_bench_print_results
@@ -362,6 +368,59 @@ static void fapp_dns_handler_resolved (const struct fnet_dns_resolved_addr *addr
     {
         fnet_shell_println(desc, "Resolution is FAILED");
     }
+}
+
+/*
+ * function with specific parameters : inbetween process of receiving msg
+ * based from embeded receive in src/io.c
+ */
+static int CbIORecv(WOLFSSL *ssl, char *buf, int sz, void *ctx)
+{
+    int recvd;
+    int sd = *(int*)ctx;
+
+    recvd = recv(sd, buf, sz, 0);
+
+    if (recvd < 0) {
+
+        	fnet_printf("IO Recv error %d \n",fnet_error_get());
+    }
+
+    //fnet_printf("Received %d bytes\n", sz);
+
+    return recvd;
+}
+
+
+/*
+ *function with specific parameters : inbetween process of sending out msg
+ *based from embeded receive in src/io.c
+ */
+static int CbIOSend(WOLFSSL *ssl, char *buf, int sz, void *ctx)
+{
+    int sd = *(int*)ctx;
+    int sent;
+    int len = sz;
+
+    sent =send(sd, &buf[sz - len], len, 0);
+
+    if (sent < 0) {
+        fnet_printf("IO Send error %d\n",fnet_error_get());
+            return WOLFSSL_CBIO_ERR_GENERAL;
+    }
+
+   // fnet_printf("CbIOSend: sent %d bytes to %d\n", sz, sd);
+
+    return sent;
+}
+static void ShowCiphers(void)
+{
+    char ciphers[4096];
+
+    int ret = wolfSSL_get_ciphers(ciphers, (int)sizeof(ciphers));
+
+    if (ret == SSL_SUCCESS)
+        fnet_printf("%s\n", ciphers);
 }
 
 #endif /* FAPP_CFG_MAIL_CMD */
