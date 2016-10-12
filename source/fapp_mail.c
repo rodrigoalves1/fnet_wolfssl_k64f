@@ -94,76 +94,202 @@ static void fapp_bench_print_results (fnet_shell_desc_t desc)
                            (interval == 0) ? (fnet_size_t) - 1 : (fnet_size_t)((fapp_bench.remote_bytes * 8/**(1000*/ / FNET_TIMER_PERIOD_MS/*)*/) / interval)/*/1000*/);
     }
 }
-/************************************************************************
-* NAME: fapp_mail
-*
-* DESCRIPTION: Mail command.
-************************************************************************/
 void fapp_server( fnet_shell_desc_t desc, fnet_index_t argc, fnet_char_t **argv ){
-	fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Santa Cruz Futebol Clube"," Terror do Nordeste");
 
 
-	 int socket_desc , client_sock , c , read_size;
-	    struct sockaddr_in server , client;
-	    char client_message[2000];
+	 fnet_address_family_t family;
 
-	    //Create socket
-	    socket_desc = socket(AF_INET , SOCK_STREAM , 0);
-	    if (socket_desc == FNET_ERR)
-	    {
-	    	fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Socket"," Could not create socket");
-	    }else{
-	    fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Socket"," Socket created");
+	 family = AF_SUPPORTED;
+
+	  struct sockaddr     local_addr;
+	    fnet_int32_t        received;
+	    fnet_char_t         ip_str[FNET_IP_ADDR_STR_SIZE];
+	    struct linger       linger_option = {FNET_TRUE, /*l_onoff*/
+	               4  /*l_linger*/
+	    };
+	    fnet_size_t         bufsize_option = FAPP_BENCH_SOCKET_BUF_SIZE;
+	    fnet_int32_t        keepalive_option = 1;
+	    fnet_int32_t        keepcnt_option = FAPP_BENCH_TCP_KEEPCNT;
+	    fnet_int32_t        keepintvl_option = FAPP_BENCH_TCP_KEEPINTVL;
+	    fnet_int32_t        keepidle_option = FAPP_BENCH_TCP_KEEPIDLE;
+	    struct sockaddr     foreign_addr;
+	    fnet_size_t         addr_len;
+	    fnet_bool_t         exit_flag = FNET_FALSE;
+	    WOLFSSL_CTX* ctx = 0;
+	    WOLFSSL* ssl =0 ;
+
+	    /*Initilize WolfSSL library*/
+	    wolfSSL_Init();
+		/*Enable debug mode*/
+		//wolfSSL_Debugging_ON();
+
+
+	    /* make new ssl context */
+	    ctx = wolfSSL_CTX_new(wolfTLSv1_2_server_method());
+
+	    if (wolfSSL_CTX_set_cipher_list(ctx, "AES128-GCM-SHA256") != SSL_SUCCESS){
+	   	    	fnet_shell_println(desc, "Erro cipher.");
 	    }
-	    //Prepare the sockaddr_in structure
-	    server.sin_family = AF_INET;
-	    server.sin_addr.s_addr = INADDR_ANY;
-	    fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "IP"," Socket created");
-	    server.sin_port = FNET_HTONS( 8888 );
 
-	    fnet_memset_zero(&server,sizeof(server));
+		/* Load server certs into ctx */
+		//if (wolfSSL_CTX_use_certificate_buffer(ctx, server_ecc_cert ,sizeof_server_ecc_cert,SSL_FILETYPE_PEM) != SSL_SUCCESS){
+		if (wolfSSL_CTX_use_certificate_buffer(ctx, server_cert_der_2048 ,sizeof_server_cert_der_2048,SSL_FILETYPE_ASN1) != SSL_SUCCESS){
+			FNET_DEBUG("Error loading certs/server-cert.pem");
+			goto ERROR_1;}
 
-	    //Bind
-	    if( bind(socket_desc,(struct sockaddr *)&server , sizeof(server)) == FNET_ERR)
+		/* Load server key into ctx */
+		//if (wolfSSL_CTX_use_PrivateKey_buffer(ctx,ecc_key,sizeof_ecc_key,SSL_FILETYPE_PEM) != SSL_SUCCESS){
+		if (wolfSSL_CTX_use_PrivateKey_buffer(ctx,server_key_der_2048,sizeof_server_key_der_2048,SSL_FILETYPE_ASN1) != SSL_SUCCESS){
+			FNET_DEBUG("Error loading certs/server-key.pem");
+			goto ERROR_1;}
+
+		/*This certificate will be treated as trusted root certificates and used to verify certs received from peers during the SSL handshake.*/
+		wolfSSL_CTX_set_verify(ctx, (SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT),0);
+	      // if (wolfSSL_CTX_load_verify_buffer(ctx, client_ecc_cert, sizeof_client_ecc_cert,SSL_FILETYPE_PEM) != SSL_SUCCESS)
+         if (wolfSSL_CTX_load_verify_buffer(ctx, client_cert_der_2048, sizeof_client_cert_der_2048,SSL_FILETYPE_ASN1) != SSL_SUCCESS)
+	    	   FNET_DEBUG("can't load ca file, Please run from wolfSSL home dir");
+
+	    fapp_bench.socket_foreign = FNET_ERR;
+
+	    /* Create listen socket */
+	    if((fapp_bench.socket_listen = fnet_socket(family, SOCK_STREAM, 0)) == FNET_ERR)
 	    {
-	        //print the error message
-	    	fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Socket"," bind failed. Error");
-	        return 1;
+	        FNET_DEBUG("BENCH: Socket creation error.");
+	        goto ERROR_1;
 	    }
-	    fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Socket"," bind done");
 
-	    //Listen
-	    listen(socket_desc , 5);
+	    /* Bind socket.*/
+	    fnet_memset_zero(&local_addr, sizeof(local_addr));
 
-	   /* //Accept and incoming connection
-	    fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Connection","Waiting for incoming connections...");
-	    }*/
-	    c = sizeof(client);
+	    local_addr.sa_port = FAPP_SERVER_PORT;
+	    local_addr.sa_family = family;
 
-	    //accept connection from an incoming client
-
-	    if ( (client_sock = accept((fnet_socket_t) socket_desc, (struct sockaddr *)&client, (fnet_size_t) &c)) == FNET_ERR)
+	    if(fnet_socket_bind(fapp_bench.socket_listen, &local_addr, sizeof(local_addr)) == FNET_ERR)
 	    {
-	    	fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Connection","accept failed");
-	    	return 1;
+	        FNET_DEBUG("BENCH: Socket bind error.");
+	        goto ERROR_2;
 	    }
-	    fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Connection","accepted");
 
-	    //Receive a message from client
-	    while( (read_size = recv(client_sock , client_message , 2000 , 0)) > 0 )
+	    /* Set Socket options. */
+	    if( /* Setup linger option. */
+	        (fnet_socket_setopt (fapp_bench.socket_listen, SOL_SOCKET, SO_LINGER, (fnet_uint8_t *)&linger_option, sizeof(linger_option)) == FNET_ERR) ||
+	        /* Set socket buffer size. */
+	        (fnet_socket_setopt(fapp_bench.socket_listen, SOL_SOCKET, SO_RCVBUF, (fnet_uint8_t *) &bufsize_option, sizeof(bufsize_option)) == FNET_ERR) ||
+	        (fnet_socket_setopt(fapp_bench.socket_listen, SOL_SOCKET, SO_SNDBUF, (fnet_uint8_t *) &bufsize_option, sizeof(bufsize_option)) == FNET_ERR) ||
+	        /* Enable keepalive_option option. */
+	        (fnet_socket_setopt (fapp_bench.socket_listen, SOL_SOCKET, SO_KEEPALIVE, (fnet_uint8_t *)&keepalive_option, sizeof(keepalive_option)) == FNET_ERR) ||
+	        /* Keepalive probe retransmit limit. */
+	        (fnet_socket_setopt (fapp_bench.socket_listen, IPPROTO_TCP, TCP_KEEPCNT, (fnet_uint8_t *)&keepcnt_option, sizeof(keepcnt_option)) == FNET_ERR) ||
+	        /* Keepalive retransmit interval.*/
+	        (fnet_socket_setopt (fapp_bench.socket_listen, IPPROTO_TCP, TCP_KEEPINTVL, (fnet_uint8_t *)&keepintvl_option, sizeof(keepintvl_option)) == FNET_ERR) ||
+	        /* Time between keepalive probes.*/
+	        (fnet_socket_setopt (fapp_bench.socket_listen, IPPROTO_TCP, TCP_KEEPIDLE, (fnet_uint8_t *)&keepidle_option, sizeof(keepidle_option)) == FNET_ERR)
+	    )
 	    {
-	        //Send the message back to client
-	        send(client_sock , client_message , strlen(client_message),0);
+	        FNET_DEBUG("BENCH: Socket setsockopt error.\n");
+	        goto ERROR_2;
 	    }
-	    if(read_size == 0)
+
+
+	    /* Listen. */
+	    if(fnet_socket_listen(fapp_bench.socket_listen, 1) == FNET_ERR)
 	    {
-	    	fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Client","disconnected");
-	        fflush(stdout);
+	        FNET_DEBUG("BENCH: Socket listen error.\n");
+	        goto ERROR_2;
 	    }
-	    else if(read_size == -1)
+
+	    /* ------ Start test.----------- */
+	    fnet_shell_println(desc, FAPP_DELIMITER_STR);
+	    fnet_shell_println(desc, " TCP+TLS RX Test");
+	    fnet_shell_println(desc, FAPP_DELIMITER_STR);
+	    fapp_print_netif_addr(desc, family, fnet_netif_get_default(), FNET_FALSE);
+	    fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_D, "Local Port", FNET_NTOHS(FAPP_SERVER_PORT));
+	    fnet_shell_println(desc, FAPP_TOCANCEL_STR);
+	    fnet_shell_println(desc, FAPP_DELIMITER_STR);
+
+	    while(exit_flag == FNET_FALSE)
 	    {
-	    	fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "recv","failed");
+	        fnet_shell_println(desc, "Waiting.");
+
+	        fapp_bench.bytes = 0;
+	        fapp_bench.remote_bytes = 0;
+	        if(fapp_bench.socket_foreign != FNET_ERR)
+	        {
+	            fnet_socket_close(fapp_bench.socket_foreign);
+	            fapp_bench.socket_foreign = FNET_ERR;
+	        }
+
+	        ssl = wolfSSL_new(ctx);
+	      	            if ( ssl == NULL) {
+	      	            	fnet_shell_println(desc," wolfSSL_new error");
+	      				}
+	      	wolfSSL_SetIORecv(ctx, CbIORecv);
+	      	wolfSSL_SetIOSend(ctx, CbIOSend);
+	        while((fapp_bench.socket_foreign == FNET_ERR) && (exit_flag == FNET_FALSE))
+	        {
+	            /*Accept*/
+	            addr_len = sizeof(foreign_addr);
+	            fapp_bench.socket_foreign = fnet_socket_accept(fapp_bench.socket_listen, &foreign_addr, &addr_len);
+
+
+
+	 	       /* Connect wolfssl to the socket, server, then read message */
+	 	       wolfSSL_set_fd(ssl, fapp_bench.socket_foreign);
+
+
+
+	            exit_flag = fnet_shell_ctrlc (desc);
+
+	            if(fapp_bench.socket_foreign != FNET_ERR)
+	            {
+
+	                fnet_shell_println(desc, "Receiving from %s:%d", fnet_inet_ntop(foreign_addr.sa_family, (fnet_uint8_t *)(foreign_addr.sa_data), ip_str, sizeof(ip_str)), fnet_ntohs(foreign_addr.sa_port));
+
+	                fapp_bench.first_time = fnet_timer_ticks();
+
+	                while(1) /* Receiving data. fnet_socket_recv*/
+	                {
+
+	                    received = wolfSSL_read(ssl, (fnet_uint8_t *)(&fapp_bench.buffer[0]), FAPP_BENCH_PACKET_SIZE_MAX);
+
+
+	                    /*if (wolfSSL_write(ssl, msg, sizeof(msg)) != sizeof(msg))
+	                         fnet_shell_println(desc, "SSL_write failed");*/
+
+	                    if ((received == FNET_ERR) || exit_flag)
+	                    {
+	                        fapp_bench.last_time = fnet_timer_ticks();
+
+	                        /* Print benchmark results.*/
+	                        fapp_bench_print_results (desc);
+	                        break;
+	                    }
+	                    else
+	                    {
+	                        fapp_bench.bytes += received;
+	                        //fnet_shell_println(desc,"Received content %s",fapp_bench.buffer);
+	                    }
+
+	                    exit_flag = fnet_shell_ctrlc (desc); /* Check [Ctrl+c]*/
+	                }
+	                WOLFSSL_CIPHER* cipher;
+	               	                                   cipher = wolfSSL_get_current_cipher(ssl);
+	               	                                   fnet_shell_println(desc,"SSL cipher suite is %s\n", wolfSSL_CIPHER_get_name(cipher));
+	            }
+	        }
 	    }
+
+	    wolfSSL_free(ssl);
+	    fnet_socket_close(fapp_bench.socket_foreign);
+		wolfSSL_CTX_free(ctx);
+		wolfSSL_Cleanup();
+
+	ERROR_2:
+	    fnet_socket_close(fapp_bench.socket_listen);
+
+	ERROR_1:
+
+	    fnet_shell_println(desc, FAPP_BENCH_COMPLETED_STR);
 
 }
 
