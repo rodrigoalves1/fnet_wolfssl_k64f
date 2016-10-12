@@ -26,6 +26,11 @@
 	</natures>
 	<linkedResources>
 		<link>
+			<name>drivers</name>
+			<type>2</type>
+			<location>C:/Users/RodrigoA/Desktop/dz/drivers</location>
+		</link>
+		<link>
 			<name>fnet_application</name>
 			<type>2</type>
 			<location>C:/Users/RodrigoA/Desktop/dz/common/fnet_application</location>
@@ -41,9 +46,14 @@
 			<location>C:/Users/RodrigoA/Desktop/dz/mmcau_2.0.0</location>
 		</link>
 		<link>
-			<name>wolfssl_3.6.8</name>
+			<name>startup</name>
 			<type>2</type>
-			<location>C:/Users/RodrigoA/Desktop/dz/wolfssl_3.6.8</location>
+			<location>C:/Users/RodrigoA/Desktop/dz/startup</location>
+		</link>
+		<link>
+			<name>wolfssl_3.9.0</name>
+			<type>2</type>
+			<location>C:/Users/RodrigoA/Desktop/dz/wolfssl_3.9.0</location>
 		</link>
 	</linkedResources>
 </projectDescription>
