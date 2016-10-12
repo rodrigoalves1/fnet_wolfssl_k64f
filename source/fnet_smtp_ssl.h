@@ -36,7 +36,7 @@ typedef struct smtp_param_struct
 extern "C" {
 #endif
 
-fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc,SMTP_PARAM_STRUCT_PTR param, char *err_string, fnet_uint32_t err_string_size);
+fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc,SMTP_PARAM_STRUCT_PTR params, char *err_string, fnet_uint32_t err_string_size);
 
 #ifdef __cplusplus
 }

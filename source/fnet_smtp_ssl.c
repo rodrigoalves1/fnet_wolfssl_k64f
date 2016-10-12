@@ -37,6 +37,7 @@
 
 #include "fnet_smtp.h"
 #include "fnet_config.h"
+#include "stack/fnet_error.h"
 
 typedef struct smtp_find_line_context
 {
@@ -95,6 +96,8 @@ const unsigned char certificate_gmail[]={
 ,0x54,0x45,0x2d,0x2d,0x2d,0x2d,0x2d,0x0d,0x0a};
 
 const int certificate_gmail_size=1162;
+fnet_size_t bytes_sent;
+fnet_size_t bytes_received;
 
 /*
 ** Function for sending email
@@ -109,19 +112,27 @@ const int certificate_gmail_size=1162;
 ** Return value:
 **      fnet_return_t - Error code or SMTP_OK.
 */
-fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc,SMTP_PARAM_STRUCT_PTR params, char *err_string, fnet_uint32_t err_string_size)
+fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc, SMTP_PARAM_STRUCT_PTR params, char *err_string, fnet_uint32_t err_string_size)
 {
     char *response = NULL;
     char *command = NULL;
     char *location = NULL;
     fnet_uint32_t code = 0;
-    fnet_uint32_t socket = 0;
+    fnet_socket_t socket = 0;
     WOLFSSL_CTX* ctx = 0;
     WOLFSSL* ssl =0 ;
     int error = 0;
     int i = 0;
     char errorString[80];
+    fnet_time_t conn_time;
+    fnet_time_t conn_start;
+    fnet_time_t sending_start;
+    fnet_time_t sending_finish;
+    bytes_sent = 0;
+    bytes_received = 0;
+
     fnet_shell_println(desc,"Iniciou send mail ssl");
+    sending_start = fnet_timer_ticks();
     /* Check params and envelope content for NULL */
        if ((params == NULL) || (params->envelope.from == NULL) || (params->envelope.to == NULL))
        {
@@ -144,8 +155,11 @@ fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc,SMTP_PARAM_STRUCT_PTR 
            return(FNET_ERR_NOMEM);
        }
 
-       /* Connect to server */
+
+       /* Connect to server  socket = SMTP_connect(desc,&params->server); */
        socket = SMTP_connect(desc,&params->server);
+
+
        if (socket == 0)
        {
     	   fnet_shell_println(desc,"error connecting to server ");
@@ -154,22 +168,25 @@ fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc,SMTP_PARAM_STRUCT_PTR 
        }
 
 	wolfSSL_Init();
+       //wolfSSL_Debugging_ON();
 
 	 /* make new ssl context */
 	ctx = wolfSSL_CTX_new(wolfSSLv23_client_method());
+	wolfSSL_CTX_UseSupportedCurve(ctx,WOLFSSL_ECC_SECP256R1);
+	wolfSSL_CTX_UseSupportedCurve(ctx,WOLFSSL_ECC_SECP521R1);
+	wolfSSL_CTX_UseSupportedCurve(ctx,WOLFSSL_ECC_SECP384R1);
 	    if ( ctx == NULL) {
 	    	fnet_shell_println(desc," wolfSSL_CTX_new error");
 	    	SMTP_ssl_cleanup(ssl, ctx, response, command, NULL);
 			return(SMTP_ERR_CONN_FAILED);
 	    }
 	    /* make new wolfSSL struct */
-	ssl = wolfSSL_new(ctx);
+	    ssl = wolfSSL_new(ctx);
 	       if ( ssl == NULL) {
 	    	   fnet_shell_println(desc," wolfSSL_new error");
 	       	SMTP_ssl_cleanup(ssl, ctx, response, command, NULL);
 	   		return(SMTP_ERR_CONN_FAILED);
 	       }
-
 	       /* Add cert to ctx */
 	       error = wolfSSL_CTX_load_verify_buffer(ctx,certificate_gmail, certificate_gmail_size,SSL_FILETYPE_PEM);
 	       if (error != SSL_SUCCESS) {
@@ -177,12 +194,29 @@ fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc,SMTP_PARAM_STRUCT_PTR 
 	       	fnet_shell_println(desc," Error loading certificates: 0x%x\n",error);
 	   		return(SMTP_ERR_CONN_FAILED);
 	       }
+	       /*sets the IO callback methods*/
+	          wolfSSL_SetIORecv(ctx, CbIORecv);
+	          wolfSSL_SetIOSend(ctx, CbIOSend);
+	         /* wolfSSL_SetIOReadCtx(ssl,ctx);
+	          wolfSSL_SetIOWriteCtx(ssl,ctx);*/
 
 	       /* Connect wolfssl to the socket, server, then read message */
 	           wolfSSL_set_fd(ssl, socket);
+	           conn_start = fnet_timer_ticks();
+	           wolfSSL_connect(ssl);
+
+	           conn_time = fnet_timer_ticks();
+
+	                 fnet_time_t interval = fnet_timer_get_interval(conn_start, conn_time);
+
+	                 fnet_shell_println(desc, "Connection to gmail took %u.%u seconds",  ((interval * FNET_TIMER_PERIOD_MS) / 1000),
+	                         ((interval * FNET_TIMER_PERIOD_MS) % 1000) / 100);
 
 	           /* Read greeting message */
-	               i=wolfSSL_read(ssl, response, SMTP_RESPONSE_BUFFER_SIZE);
+	            i=wolfSSL_read(ssl, response, SMTP_RESPONSE_BUFFER_SIZE);
+	            WOLFSSL_CIPHER* cipher;
+	            cipher = wolfSSL_get_current_cipher(ssl);
+	            fnet_shell_println(desc,"SSL cipher suite is %s\n", wolfSSL_CIPHER_get_name(cipher));
 	               if(i<0)
 	               {
 	               	error = wolfSSL_get_error(ssl, i);
@@ -192,7 +226,7 @@ fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc,SMTP_PARAM_STRUCT_PTR 
 	           		return(SMTP_ERR_CONN_FAILED);
 	               }
 
-	               /* Get response code */
+	               /* Get response code*/
 	                   code = SMTP_get_response_code(response);
 	                   if (code > 299)
 	                   {
@@ -205,13 +239,13 @@ fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc,SMTP_PARAM_STRUCT_PTR 
 	                   fnet_shell_println(desc,"");
 
 	                   /* Get server extensions */
-	                      fnet_sprintf(command, "EHLO FreescaleTower");
+	                      fnet_sprintf(command, "EHLO FreescaleBoard");
 	                      code = SMTP_ssl_send_command(ssl, command, response, SMTP_RESPONSE_BUFFER_SIZE);
 
 	                      /* If server does not support EHLO, try HELO */
 	                      if (code > 399)
 	                      {
-	                          fnet_sprintf(command, "HELO FreescaleTower");
+	                          fnet_sprintf(command, "HELO FreescaleBoard");
 	                          code = SMTP_ssl_send_command(ssl, command, response, SMTP_RESPONSE_BUFFER_SIZE);
 	                          if (code != 399)
 	                          {
@@ -310,7 +344,8 @@ fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc,SMTP_PARAM_STRUCT_PTR 
 	                      code = SMTP_ssl_send_string(ssl, params->text);
 
 	                      /* Send terminating sequence for DATA command */
-	                      code = SMTP_ssl_send_command(ssl, "\r\n.", response, SMTP_RESPONSE_BUFFER_SIZE);
+
+	                      code = SMTP_ssl_send_command(ssl, "\r\n\r\n.\r\n", response, SMTP_RESPONSE_BUFFER_SIZE);
 	                      if ((code > 299) || (code == 0))
 	                      {
 	                          SET_ERR_STR(err_string, response, err_string_size);
@@ -327,6 +362,12 @@ fnet_return_t SMTP_ssl_send_email (fnet_shell_desc_t desc,SMTP_PARAM_STRUCT_PTR 
 
 	                      /* Cleanup */
 	                      SMTP_ssl_cleanup(ssl, ctx, response, command, NULL);
+	                      sending_finish = fnet_timer_ticks();
+
+	                      	                 fnet_time_t interval2 = fnet_timer_get_interval(sending_start, sending_finish);
+
+	                      	                 fnet_shell_println(desc, "Sending %u bytes took %u.%u seconds and received %u",bytes_sent,  ((interval2 * FNET_TIMER_PERIOD_MS) / 1000),
+	                      	                         ((interval2 * FNET_TIMER_PERIOD_MS) % 1000) / 100,bytes_received);
 
 
 	return(SMTP_OK);
@@ -432,14 +473,16 @@ static fnet_uint32_t SMTP_ssl_send_command (WOLFSSL* ssl, char *command, char *r
     /* Add terminating sequence and send command to server */
     fnet_sprintf(out_string, "%s\r\n", command);
     //send(socket, out_string, strlen(out_string), 0);
-    printf("Sending: %s",command);
+    fnet_printf("Sending: %s \n",command);
     wolfSSL_write(ssl, out_string, fnet_strlen(out_string));
+    bytes_sent += fnet_strlen(out_string);
 
     /* Read response */
     //rec_len = recv(socket, response, max_size, 0);
     rec_len = wolfSSL_read(ssl, response, max_size);
     response[rec_len] = '\0';
-    printf("Received %d bytes: %s",command);
+    fnet_printf("Received %d bytes: %s \n",rec_len);
+    bytes_received += rec_len;
     /* Cleanup and return */
     fnet_free(out_string);
     return(SMTP_get_response_code(response));
