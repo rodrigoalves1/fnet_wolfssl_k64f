@@ -25,6 +25,24 @@
 #define DATE_LENGTH 128
 #define ERR_MSG_BUFF_SIZE 512
 
+/************************************************************************
+*    Benchmark server control structure.
+*************************************************************************/
+struct fapp_bench_t
+{
+    fnet_socket_t socket_listen;                   /* Listening socket.*/
+    fnet_socket_t socket_foreign;                  /* Foreign socket.*/
+
+    fnet_uint8_t buffer[FAPP_BENCH_PACKET_SIZE_MAX];    /* Transmit circular buffer */
+
+    fnet_time_t first_time;
+    fnet_time_t last_time;
+    fnet_size_t bytes;
+    fnet_size_t remote_bytes;
+};
+
+static struct fapp_bench_t fapp_bench;
+
 SMTP_PARAM_STRUCT params = { 0 };
 char *server = NULL;
 char *email_text = NULL;
@@ -40,12 +58,41 @@ const char *months[] =
 *     Function Prototypes
 *************************************************************************/
 static void fapp_dns_handler_resolved (const struct fnet_dns_resolved_addr *addr_list, fnet_size_t addr_list_size, fnet_uint32_t cookie);
+static void fapp_bench_print_results (fnet_shell_desc_t desc);
+
+/************************************************************************
+* NAME: fapp_bench_print_results
+*
+* DESCRIPTION: Print Benchmark results.
+************************************************************************/
+static void fapp_bench_print_results (fnet_shell_desc_t desc)
+{
+    /* Print benchmark results.*/
+    fnet_time_t interval = fnet_timer_get_interval(fapp_bench.first_time, fapp_bench.last_time);
+
+    fnet_shell_println(desc, "Results:");
+
+    if(fapp_bench.remote_bytes == 0)
+    {
+        fnet_shell_println(desc, "\t%u bytes in %u.%u seconds = %u Kbits/sec\n", fapp_bench.bytes,
+                           ((interval * FNET_TIMER_PERIOD_MS) / 1000),
+                           ((interval * FNET_TIMER_PERIOD_MS) % 1000) / 100,
+                           (interval == 0) ? (fnet_size_t) - 1 : (fnet_size_t)((fapp_bench.bytes * 8/**(1000*/ / FNET_TIMER_PERIOD_MS/*)*/) / interval)/*/1000*/);
+    }
+    else /* UDP TX only */
+    {
+        fnet_shell_println(desc, "\t%u [%u] bytes in %u.%u seconds = %u [%u] Kbits/sec\n", fapp_bench.bytes, fapp_bench.remote_bytes,
+                           ((interval * FNET_TIMER_PERIOD_MS) / 1000),
+                           ((interval * FNET_TIMER_PERIOD_MS) % 1000) / 100,
+                           (interval == 0) ? (fnet_size_t) - 1 : (fnet_size_t)((fapp_bench.bytes * 8/**(1000*/ / FNET_TIMER_PERIOD_MS/*)*/) / interval)/*/1000*/,
+                           (interval == 0) ? (fnet_size_t) - 1 : (fnet_size_t)((fapp_bench.remote_bytes * 8/**(1000*/ / FNET_TIMER_PERIOD_MS/*)*/) / interval)/*/1000*/);
+    }
+}
 /************************************************************************
 * NAME: fapp_mail
 *
 * DESCRIPTION: Mail command.
 ************************************************************************/
-
 void fapp_server( fnet_shell_desc_t desc, fnet_index_t argc, fnet_char_t **argv ){
 	fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Santa Cruz Futebol Clube"," Terror do Nordeste");
 
