@@ -26,6 +26,7 @@ extern "C" {
 
 void fapp_mail( fnet_shell_desc_t desc, fnet_index_t argc, fnet_char_t **argv );
 void fapp_server(fnet_shell_desc_t desc, fnet_index_t argc, fnet_char_t **argv );
+void fapp_client(fnet_shell_desc_t desc, fnet_index_t argc, fnet_char_t **argv );
 #if defined(__cplusplus)
 }
 #endif
