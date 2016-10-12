@@ -52,6 +52,8 @@ static fnet_uint32_t SMTP_connect (fnet_shell_desc_t desc,struct sockaddr* serve
 static void SMTP_ssl_cleanup(WOLFSSL* ssl,WOLFSSL_CTX* ctx, void *a, ...);
 static char *SMTP_findline(char *s, char **line_start, fnet_uint32_t *line_length, SMTP_FIND_LINE_CONTEXT* context);
 static void SMTP_findline_init(SMTP_FIND_LINE_CONTEXT* context);
+static int CbIORecv(WOLFSSL *ssl, char *buf, int sz, void *ctx);
+static int CbIOSend(WOLFSSL *ssl, char *buf, int sz, void *ctx);
 
 const unsigned char certificate_gmail[]={
 0x2d,0x2d,0x2d,0x2d,0x2d,0x42,0x45,0x47,0x49,0x4e,0x20,0x43,0x45,0x52,0x54,0x49,0x46,0x49,0x43,0x41,0x54,0x45,0x2d,0x2d,0x2d,0x2d,0x2d,0x0d,0x0a,0x4d,0x49,0x49,0x44
@@ -644,4 +646,48 @@ static void SMTP_findline_init(SMTP_FIND_LINE_CONTEXT* context)
     context->last_start = NULL;
     context->last_end = NULL;
     context->first = FNET_FALSE;
+}
+
+/*
+ * function with specific parameters : inbetween process of receiving msg
+ * based from embeded receive in src/io.c
+ */
+static int CbIORecv(WOLFSSL *ssl, char *buf, int sz, void *ctx)
+{
+    int recvd;
+    int sd = *(int*)ctx;
+
+    recvd = recv(sd, buf, sz, 0);
+
+    if (recvd < 0) {
+
+        	fnet_printf("IO Recv error %d \n",fnet_error_get());
+    }
+
+    //fnet_printf("Received %d bytes\n", sz);
+
+    return recvd;
+}
+
+
+/*
+ *function with specific parameters : inbetween process of sending out msg
+ *based from embeded receive in src/io.c
+ */
+static int CbIOSend(WOLFSSL *ssl, char *buf, int sz, void *ctx)
+{
+    int sd = *(int*)ctx;
+    int sent;
+    int len = sz;
+
+    sent =send(sd, &buf[sz - len], len, 0);
+
+    if (sent < 0) {
+        fnet_printf("IO Send error %d\n",fnet_error_get());
+            return WOLFSSL_CBIO_ERR_GENERAL;
+    }
+
+   // fnet_printf("CbIOSend: sent %d bytes to %d\n", sz, sd);
+
+    return sent;
 }
