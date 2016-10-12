@@ -116,53 +116,80 @@ void fapp_server( fnet_shell_desc_t desc, fnet_index_t argc, fnet_char_t **argv 
 
 
 void fapp_mail( fnet_shell_desc_t desc, fnet_index_t argc, fnet_char_t **argv ){
+    fnet_uint32_t email_size = 0;
+
+
+    		char date_str[DATE_LENGTH];
+    		char* subject = NULL;
+    		server = "smtp.gmail.com";
+    		params.envelope.from = "";
+    		params.envelope.to = "";
+    		params.login = "";
+    		if(argc == 3)
+    		{
+    		params.pass = argv[1];
+    		subject = argv[2];
+    		params.text = argv[3];
+    		}
+    		else{
+        		params.pass = "pass";
+        		subject = "Subject";
+        		params.text = "Message";
+    		}
+
+    		//printf("%04d-%02d-%02dT%02d:%02d:%02d\n",BUILD_YEAR, BUILD_MONTH, BUILD_DAY, BUILD_HOUR, BUILD_MIN, BUILD_SEC);
+    		fnet_snprintf(date_str, DATE_LENGTH, "%d %s %d %02d:%02d:%02d", BUILD_DAY, months[BUILD_MONTH-1],BUILD_YEAR, BUILD_HOUR, BUILD_MIN, BUILD_SEC);
+    		    /* Evaluate email size */
+    		    email_size = fnet_strlen(params.envelope.from) +
+    		    		fnet_strlen(params.envelope.to) +
+    					fnet_strlen(params.text) +
+    					fnet_strlen(subject) +
+    					fnet_strlen(date_str) +
+    					fnet_strlen("From: <>\r\n") +
+    					fnet_strlen("To: <>\r\n") +
+    					fnet_strlen("Subject: \r\n") +
+    					fnet_strlen("Date: \r\n\r\n") +
+    					fnet_strlen("\r\n") + 1;
+    		    /* Allocate space */
+    		    fnet_shell_println(desc, date_str);
+    		    email_text = (char *) fnet_malloc_zero(email_size);
+    		    if (email_text == NULL)
+    		     {
+    		    	fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Unable to allocate memory for email message.\n","");
+    		         //return(FNET_ERR);
+    		     }
+    		    /* Prepare email message */
+    		      fnet_snprintf(email_text, email_size, "From: <%s>\r\n"
+    		                                       "To: <%s>\r\n"
+    		                                       "Subject: %s\r\n"
+    		                                       "Date: %s\r\n\r\n"
+    		                                       "%s\r\n",
+    		                                       params.envelope.from,
+    		                                       params.envelope.to,
+    		                                       subject,
+    		                                       date_str,
+    		                                       params.text);
+    		      params.text = email_text;
+
 	struct fnet_dns_params      dns_params;
-	fnet_uint32_t email_size = 0;
-	char date_str[DATE_LENGTH];
-	char* subject = NULL;
-	server = "smtp.live.com";
-	params.envelope.from = "";
-	params.envelope.to = "";
-	subject = "agora vai";
-	params.text = "ui papai o santinha ja chegou, é o terror do nordeste!!";
-	params.login = "";
-	params.pass = "";
-	//printf("%04d-%02d-%02dT%02d:%02d:%02d\n",BUILD_YEAR, BUILD_MONTH, BUILD_DAY, BUILD_HOUR, BUILD_MIN, BUILD_SEC);
-	fnet_snprintf(date_str, DATE_LENGTH, "%d %d %d %02d:%02d:%02d", BUILD_DAY, months[BUILD_MONTH],BUILD_YEAR, BUILD_HOUR, BUILD_MIN, BUILD_SEC);
-	    /* Evaluate email size */
-	    email_size = fnet_strlen(params.envelope.from) +
-	    		fnet_strlen(params.envelope.to) +
-				fnet_strlen(params.text) +
-				fnet_strlen(subject) +
-				fnet_strlen(date_str) +
-				fnet_strlen("From: <>\r\n") +
-				fnet_strlen("To: <>\r\n") +
-				fnet_strlen("Subject: \r\n") +
-				fnet_strlen("Date: \r\n\r\n") +
-				fnet_strlen("\r\n") + 1;
-	    /* Allocate space */
-	    fnet_shell_println(desc, date_str);
-	    email_text = (char *) fnet_malloc_zero(email_size);
-	    if (email_text == NULL)
-	     {
-	    	fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S, "Unable to allocate memory for email message.\n","");
-	         //return(FNET_ERR);
-	     }
-	    /* Prepare email message */
-	      snprintf(email_text, email_size, "From: <%s>\r\n"
-	                                       "To: <%s>\r\n"
-	                                       "Subject: %s\r\n"
-	                                       "Date: %s\r\n\r\n"
-	                                       "%s\r\n",
-	                                       params.envelope.from,
-	                                       params.envelope.to,
-	                                       subject,
-	                                       date_str,
-	                                       params.text);
-	      params.text = email_text;
+
+        char *errstr = NULL;
+        fnet_uint32_t retval = 0;
 
 
+		fnet_memset_zero(&params.server, sizeof(params.server));
 
+		/*if server is an already resolved IP*/
+		 if(fnet_inet_ptos(server, &params.server) == FNET_OK){
+
+   	    	params.server.sa_port = FNET_HTONS(465);
+   	    	params.server.sa_family = AF_INET;
+
+   	    	retval = SMTP_ssl_send_email(desc,&params, errstr, ERR_MSG_BUFF_SIZE);
+
+   	    	fnet_shell_println(desc," Return value = %d",retval);
+
+		 }else{/*If not try to resolve address*/
 
 	      	fnet_memset_zero(&dns_params, sizeof(struct fnet_dns_params));
 	      	dns_params.addr_family = AF_INET;
@@ -194,7 +221,7 @@ void fapp_mail( fnet_shell_desc_t desc, fnet_index_t argc, fnet_char_t **argv ){
 	       retval = fnet_dns_init(&dns_params);
 	       if (retval == FNET_ERR)
 	       {
-	    	   fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S,( "getaddrinfo failed. Error: 0x%X\n",retval), "");
+	    	   fnet_shell_println(desc, FAPP_SHELL_INFO_FORMAT_S,( "DNS Init failed. Error: 0x%X\n",retval), "");
 	           err_code = -5;
 	           return(err_code);
 	       }else{
@@ -203,7 +230,7 @@ void fapp_mail( fnet_shell_desc_t desc, fnet_index_t argc, fnet_char_t **argv ){
 	    	                              fnet_inet_ntop(dns_params.dns_server_addr.sa_family, dns_params.dns_server_addr.sa_data, ip_str, sizeof(ip_str)));
 	       }
 	       fnet_shell_println(desc, "passou dns", "");
-
+		 }
 
 
 
@@ -219,19 +246,17 @@ static void fapp_dns_handler_resolved (const struct fnet_dns_resolved_addr *addr
     fnet_shell_desc_t   desc = (fnet_shell_desc_t) cookie;
     fnet_index_t        i;
 
+
     fnet_shell_unblock((fnet_shell_desc_t)cookie); /* Unblock the shell. */
 
     if(addr_list && addr_list_size)
     {
-        for(i = 0u; i < addr_list_size; i++)
+       /* for(i = 0u; i < addr_list_size; i++)
         {
-        	 //
-            fnet_shell_printf(desc, FAPP_SHELL_INFO_FORMAT_S, "Resolved address",
-            		fnet_inet_ntop(addr_list->resolved_addr.sa_family, addr_list->resolved_addr.sa_data, ip_str, sizeof(ip_str)) );
+            fnet_shell_printf(desc, FAPP_SHELL_INFO_FORMAT_S, "Resolved address",fnet_inet_ntop(addr_list->resolved_addr.sa_family, addr_list->resolved_addr.sa_data, ip_str, sizeof(ip_str)) );
             fnet_shell_println(desc, "\t TTL=%d", addr_list->resolved_addr_ttl);
-
             addr_list++;
-        }
+        }*/
         fnet_shell_println(desc," All resolved IPs printed");
         char *errstr = NULL;
         fnet_uint32_t retval = 0;
@@ -241,9 +266,20 @@ static void fapp_dns_handler_resolved (const struct fnet_dns_resolved_addr *addr
     	      	     for(i = 0u; i < addr_list_size; i++)
     	      	       {
     	      	    	fnet_shell_println(desc," Try #%d",i);
-    	      	           fnet_memcpy(&addr_list->resolved_addr, &params.server, sizeof(params.server));
+    	      	    	//fnet_memset_zero(&params.server, sizeof(params.server));
+    	      	        fnet_memcpy( &params.server, &addr_list->resolved_addr, sizeof(params.server));
+
+    	      	    	//fnet_inet_ptos("64.233.186.108", &params.server);
+    	      	    	params.server.sa_port = FNET_HTONS(FNET_SMTP_SSL_PORT);
+    	      	    	params.server.sa_family = AF_INET;
+
+    	      	         fnet_shell_printf(desc, FAPP_SHELL_INFO_FORMAT_S, "Resolved address 2",
+    	      	                    		fnet_inet_ntop(params.server.sa_family, params.server.sa_data, ip_str, sizeof(ip_str)) );
     	      	           // Try to send email
-    	      	           retval = SMTP_send_email(&params, errstr, ERR_MSG_BUFF_SIZE);
+
+    	      	       //fnet_inet_ptos(fnet_inet_ntop(params.server.sa_family, params.server.sa_data, ip_str, sizeof(ip_str)), &params.server);
+
+    	      	         retval = SMTP_ssl_send_email(desc,&params, errstr, ERR_MSG_BUFF_SIZE);
     	      	           fnet_shell_println(desc," Return value = %d",retval);
     	      	           // If connection failed try another address
     	      	           if (retval != SMTP_ERR_CONN_FAILED)
@@ -252,27 +288,26 @@ static void fapp_dns_handler_resolved (const struct fnet_dns_resolved_addr *addr
     	      	           }
     	      	         addr_list++;
     	      	       }
-    	      	       /* No address succeeded
-    	      	       if (rp == NULL)
+    	      	       /* No address succeeded*/
+    	      	       if (addr_list == NULL)
     	      	       {
-    	      	    	   fnet_shell_println(desc,  "  Unable to connect to %s.\n", server);
+    	      	    	   fnet_shell_println(desc,  "  Unable to connect to %s.", server);
     	      	           err_code = -5;
-    	      	       }*/
+    	      	       }
 
     	      	       if (retval != SMTP_OK)
     	      	       {
-    	      	    	   fnet_shell_println(desc, "  Email sending failed%s %s\n", (strlen(errstr) > 0) ? ":":".", errstr);
+    	      	    	   fnet_shell_println(desc, "  Email sending failed%s %s", (fnet_strlen(errstr) > 0) ? ":":".", errstr);
     	      	           err_code = -5;
     	      	       }
     	      	       else
     	      	       {
-    	      	    	   fnet_shell_println(desc,"  Email send. Server response: %s", errstr);
+    	      	    	   fnet_shell_println(desc,"  Email sent.");
     	      	       }
     	      	       /* Cleanup */
     	      	       //freeaddrinfo(result);
     	      	       fnet_free(errstr);
     	      	       fnet_free(email_text);
-    	      	       return(err_code);
 
 
     }
@@ -280,11 +315,6 @@ static void fapp_dns_handler_resolved (const struct fnet_dns_resolved_addr *addr
     {
         fnet_shell_println(desc, "Resolution is FAILED");
     }
-
-
-
-
-
 }
 
 #endif /* FAPP_CFG_MAIL_CMD */
