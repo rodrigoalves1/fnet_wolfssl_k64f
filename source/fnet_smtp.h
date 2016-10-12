@@ -43,10 +43,33 @@
 #define SMTP_COMMAND_BUFFER_SIZE  (128)
 #define IPPORT_SMTP        25
 #define IPPORT_SMTP_SSL    465
+#define IPPORT_SMTP_TLS    587
 
-#ifndef RTCS_SMTP_PORT
-    #define RTCS_SMTP_PORT IPPORT_SMTP
-    #define RTCS_SMTP_SSL_PORT IPPORT_SMTP_SSL
+#define SOCKET_EWOULDBLOCK  11
+#define SOCKET_EAGAIN       FNET_ERR_AGAIN
+#define SOCKET_ECONNRESET   FNET_ERR_CONNRESET
+#define SOCKET_EINTR        4
+#define SOCKET_EPIPE        32
+#define SOCKET_ECONNREFUSED FNET_ERR_NETUNREACH
+#define SOCKET_ECONNABORTED FNET_ERR_CONNABORTED
+
+#define FAPP_BENCH_COMPLETED_STR            "Test completed."
+#define FAPP_SERVER_PORT                         (FNET_HTONS(7007))      /* Port used by the server application (in network byte order).*/
+#define FAPP_BENCH_PACKET_SIZE_MAX              (8*1024)    /* Defines size of Applacation and Socket TX&RX buffers.*/
+#define FAPP_BENCH_SOCKET_BUF_SIZE          (FAPP_BENCH_PACKET_SIZE_MAX)
+/* Keepalive probe retransmit limit.*/
+#define FAPP_BENCH_TCP_KEEPCNT              (2)
+
+/* Keepalive retransmit interval.*/
+#define FAPP_BENCH_TCP_KEEPINTVL            (5) /*sec*/
+
+/* Time between keepalive probes.*/
+#define FAPP_BENCH_TCP_KEEPIDLE             (5) /*sec*/
+
+
+#ifndef FNET_SMTP_PORT
+    #define FNET_SMTP_PORT IPPORT_SMTP
+    #define FNET_SMTP_SSL_PORT IPPORT_SMTP_SSL
 
 #endif
 
@@ -66,12 +89,21 @@ typedef struct smtp_param_struct
     char *login;
     char *pass;
 }SMTP_PARAM_STRUCT, * SMTP_PARAM_STRUCT_PTR;
+/*
+struct smtp_param_struct
+{
+    SMTP_EMAIL_ENVELOPE envelope;
+    char *text;
+    struct sockaddr server;
+    char *login;
+    char *pass;
+};*/
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-fnet_uint32_t SMTP_send_email (SMTP_PARAM_STRUCT_PTR param, char *err_string, fnet_uint32_t err_string_size);
+fnet_uint32_t SMTP_send_email (SMTP_PARAM_STRUCT_PTR params, char *err_string, fnet_uint32_t err_string_size);
 
 #ifdef __cplusplus
 }

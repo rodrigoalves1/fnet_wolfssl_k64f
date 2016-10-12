@@ -472,46 +472,78 @@ static fnet_uint32_t SMTP_get_response_code(char *response)
 **      none
 **
 ** Return value:
-**      uint32 - socket created and connected to server on port 25 or zero.
+**      uint32 - socket created and connected to server on SSL port or zero.
 */
 
 static fnet_uint32_t SMTP_connect (fnet_shell_desc_t desc,struct sockaddr* server)
 {
-	fnet_int32_t   retval = 0;
-	fnet_uint32_t  sfd = 0;
+	const struct linger     linger_option = {FNET_TRUE, /*l_onoff*/
+	              4  /*l_linger*/
+	    };
+	    const fnet_size_t       bufsize_option = FAPP_BENCH_SOCKET_BUF_SIZE;
+	    const fnet_int32_t      keepalive_option = 1;
+	    const fnet_int32_t      keepcnt_option = FAPP_BENCH_TCP_KEEPCNT;
+	    const fnet_int32_t      keepintvl_option = FAPP_BENCH_TCP_KEEPINTVL;
+	    const fnet_int32_t      keepidle_option = FAPP_BENCH_TCP_KEEPIDLE;
+	    fnet_socket_state_t     connection_state;
+	    fnet_size_t             option_len;
 
     /* Create socket */
-    sfd = socket(server->sa_family, SOCK_STREAM, 0);
-    if (sfd == FNET_ERR)
+	    fnet_socket_t  socket_foreign = 0;
+	    socket_foreign = fnet_socket(server->sa_family, SOCK_STREAM, 0);
+
+    /* Set Socket options. */
+    if( /* Setup linger option. */
+        (fnet_socket_setopt (socket_foreign, SOL_SOCKET, SO_LINGER, (fnet_uint8_t *)&linger_option, sizeof(linger_option)) == FNET_ERR) ||
+        /* Set socket buffer size. */
+        (fnet_socket_setopt(socket_foreign, SOL_SOCKET, SO_RCVBUF, (fnet_uint8_t *) &bufsize_option, sizeof(bufsize_option)) == FNET_ERR) ||
+        (fnet_socket_setopt(socket_foreign, SOL_SOCKET, SO_SNDBUF, (fnet_uint8_t *) &bufsize_option, sizeof(bufsize_option)) == FNET_ERR) ||
+        /* Enable keepalive_option option. */
+        (fnet_socket_setopt (socket_foreign, SOL_SOCKET, SO_KEEPALIVE, (fnet_uint8_t *)&keepalive_option, sizeof(keepalive_option)) == FNET_ERR) ||
+        /* Keepalive probe retransmit limit. */
+        (fnet_socket_setopt (socket_foreign, IPPROTO_TCP, TCP_KEEPCNT, (fnet_uint8_t *)&keepcnt_option, sizeof(keepcnt_option)) == FNET_ERR) ||
+        /* Keepalive retransmit interval.*/
+        (fnet_socket_setopt (socket_foreign, IPPROTO_TCP, TCP_KEEPINTVL, (fnet_uint8_t *)&keepintvl_option, sizeof(keepintvl_option)) == FNET_ERR) ||
+        /* Time between keepalive probes.*/
+        (fnet_socket_setopt (socket_foreign, IPPROTO_TCP, TCP_KEEPIDLE, (fnet_uint8_t *)&keepidle_option, sizeof(keepidle_option)) == FNET_ERR)
+    )
+    {
+        FNET_DEBUG("MAIL: Socket setsockopt error.\n");
+        goto ERROR_2;
+    }
+
+    if (socket_foreign == FNET_ERR)
     {
         return(0);
     }
     /* Set port for connection */
-    switch(server->sa_family)
-    {
-        case AF_INET:
-            ((struct sockaddr_in*) server)->sin_port = RTCS_SMTP_SSL_PORT;
-            break;
-        case AF_INET6:
-            ((struct sockaddr_in6*) server)->sin6_port = RTCS_SMTP_SSL_PORT;
-            break;
-    }
+
+
     /* Connect socket */
-    retval = connect(sfd, server, sizeof(*server));
-    if (retval != FNET_OK)
-    {
-        struct linger l_options;
+    fnet_char_t                ip_str[FNET_IP_ADDR_STR_SIZE_MAX];
+    fnet_shell_printf(desc,"Connecting to %s at port %d \n",fnet_inet_ntop(server->sa_family, server->sa_data, ip_str, sizeof(ip_str)),fnet_ntohs(server->sa_port) );
 
-        fnet_shell_printf(desc, "SMTPClient - Connection failed. Error: 0x%X\n", retval);
+    //fnet_memcpy(&foreign_addr, &params->server, sizeof(foreign_addr));
+    //retval = connect(socket_foreign,server, sizeof(*server));
+    //fnet_socket_connect(socket_foreign, (struct sockaddr *)(&foreign_addr), sizeof(foreign_addr));
+    fnet_socket_connect(socket_foreign,(server), sizeof(*server));
+    do
+           {
+               option_len = sizeof(connection_state);
+               fnet_socket_getopt(socket_foreign, SOL_SOCKET, SO_STATE, (fnet_uint8_t *)&connection_state, &option_len);
+           }
+           while (connection_state == SS_CONNECTING);
 
-        /* Set linger options for RST flag sending. */
-        l_options.l_onoff = 1;
-        l_options.l_linger = 0;
-        setsockopt(sfd, SOL_SOCKET, SO_LINGER, &l_options, sizeof(l_options));
-        closesocket(sfd);
-        return(0);
-    }
-    return(sfd);
+           if(connection_state != SS_CONNECTED)
+           {
+               fnet_shell_println(desc, "Connection failed.");
+               goto ERROR_2;
+           }
+
+    return(socket_foreign);
+
+    ERROR_2:
+           fnet_socket_close(socket_foreign);
 
 
 }
